@@ -1,0 +1,133 @@
+# Overview / Codebook
+This section will provide a brief description of where to find things. 
+
+The Codebook.txt file contains the column names for the final tidy data set. **Each of those columns is an average value by subject and activity.** This file should be used in tandem with features_info.txt to understand what each variable was derived from. That file has been unchanged and thus resides at /data/UCI HAR Dataset/
+
+The rest of this README closely follows the transformation process to produce the final tidy data set and annotates each step of the transformation. Many comments are also in the run_analysis.R script.
+
+## Transformation Process
+
+#### Load Data ####
+```{r}
+## This run_analysis.R script will download data from wearable devices.
+## It takes the data and produces a few tidy derived data sets. Much of 
+## the source data is described in other files in the downloaded zip.
+setwd("~/Repos/datasciencecoursera/Getting and Cleaning Data Course Project")
+if(!file.exists("./data")){dir.create("./data")}
+if(!file.exists("./data/UCI HAR Dataset")){
+    fileUrl <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
+    download.file(fileUrl,destfile="./data/smartphone.zip",method="curl")
+    unzip("./data/smartphone.zip", exdir = "./data")
+} else {
+    trainXdata <- read.table("./data/UCI HAR Dataset/train/X_train.txt")
+    trainYdata <- read.table("./data/UCI HAR Dataset/train/y_train.txt")
+    trainSubjects <- read.table("./data/UCI HAR Dataset/train/subject_train.txt")
+    testXdata <- read.table("./data/UCI HAR Dataset/test/X_test.txt")
+    testYdata <- read.table("./data/UCI HAR Dataset/test/y_test.txt")
+    testSubjects <- read.table("./data/UCI HAR Dataset/test/subject_test.txt")
+}
+```
+
+#### Merge Training and Test Data Sets ####
+
+```{r}
+## First well add the activity labels and subjects to test 
+## and train independently
+testdata <- cbind(testSubjects, testYdata, testXdata)
+traindata <- cbind(trainSubjects, trainYdata, trainXdata)
+```
+
+
+```{r}
+## Next add training and test data sets together
+data <- rbind(traindata, testdata)
+```
+
+
+#### Part 2: Extract mean and std features ####
+
+```{r}
+## From the features_info.txt file we learned that std() and mean() 
+## were calculated from the signals and represent standard deviation 
+## and mean respectively. 
+## Thus, we visually inspect the features.txt file to find variables that
+## included mean() or std(). The index of those columns is stored in a.
+## -1 & 0 are included since we added the labels and want to keep them
+a <- c(-1,0,1,2,3,4,5,6,41,42,43,44,45,46,81,82,83,84,85,86,121,122,123,124,125,126,
+       161,162,163,164,165,166,201,202,214,215,227,228,240,241,253,254,
+       266,267,268,269,270,271,345,346,347,348,349,350,424,425,426,427,
+       428,429,503,504,516,517,529,530,542,543)
+```
+
+
+```{r}
+## Subset by columns into an extracted data set
+## We add 2 to a since R starts indexing at 1 and everything was shifted
+## when labels/subjects were added to the left
+ext_data <- data[,(a +2)]
+```
+
+#### Part 3: Add descriptive activity names ####
+
+
+```{r}
+## The activity is the y data we added earlier on. That means it is in
+## the second column. The activity_labels.txt files has the mappings
+## so we need to load that data
+labels <- read.table("./data/UCI HAR Dataset/activity_labels.txt")
+```
+
+
+```{r}
+## The match function returns the index in the labels lookup for every
+## row in ext_data, it is bound by 1-6 and it returns a vector. 
+## This vector can be used to pull character values from the labels table 
+## and assign them to ext_data
+ext_data[,2] <- labels$V2[match(ext_data[,2], labels[,1])]
+```
+
+#### Part 4: Add variable labels ####
+
+
+```{r}
+## Now we want to label each of the columns. To do that we will use the 
+## descriptions from features.txt since they are the most informative 
+## labels when used in tandem with features_info.txt
+variables <- read.table("./data/UCI HAR Dataset/features.txt")
+```
+
+
+```{r}
+## We can use the variable a from before to subset the same mapped columns
+## We cast them as characters and add activity first since we added the
+## y labels to the left side. And ultimately assign to colnames function.
+colnames(ext_data) <- c("Subject", "Activity", as.character(variables[a[3:length(a)],2]))
+```
+
+
+#### Part 5: Average of each variable for each activity and each subject ####
+
+
+```{r}
+## To calculate the average of each variable broken down by each activity
+## and each subject we can use the aggregate function. We subset by columns
+## since we don't want the mean of the subjects nor activity.
+ave_data <- aggregate(ext_data[,3:68], by = list(ext_data$Subject, 
+    ext_data$Activity), FUN=mean, na.rm=T)
+
+## Reapply labels to first 2 columns
+colnames(ave_data)[1:2] <- c("Subject","Activity")
+```
+
+
+#### Write a tidy data set locally ####
+
+
+```{r}
+## Now that we have some new data frames we'll write one out locally.
+write.table(ave_data, file = "./data/average_mean_std_by_subject_activity.txt", row.names = F)
+
+## The file can easily be read back in by
+b <- read.table("./data/average_mean_std_by_subject_activity.txt", header = T)
+
+```
