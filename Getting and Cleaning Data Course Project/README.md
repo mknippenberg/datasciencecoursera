@@ -3,6 +3,8 @@ This section will provide a brief description of where to find things.
 
 The Codebook.txt file contains the column names for the final tidy data set. **Each of those columns is an average value by subject and activity.** This file should be used in tandem with features_info.txt to understand what each variable was derived from. That file has been unchanged and thus resides at /data/UCI HAR Dataset/
 
+A full description of the source data can be found [here](http://archive.ics.uci.edu/ml/datasets/Human+Activity+Recognition+Using+Smartphones)
+
 The rest of this README closely follows the transformation process to produce the final tidy data set and annotates each step of the transformation. Many comments are also in the run_analysis.R script.
 
 ## Transformation Process
