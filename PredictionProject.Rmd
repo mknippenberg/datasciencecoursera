@@ -1,0 +1,172 @@
+---
+title: "Predicting Exercise Movements"
+author: "Mathias Knippenberg"
+date: "September 5, 2016"
+output: html_document
+---
+
+# Overview
+The motivation for this assignment comes from this previous research:
+
+*Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.*
+
+*Read more: http://groupware.les.inf.puc-rio.br/har#ixzz4JPn8WgsP*
+
+For this assignment we will start with the proved training and testing data sets:
+
+training data set: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+testing data set: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The goal will be to cover the following:
+
+1. How the model is built 
+2. How cross validation was used
+3. What the expected out of sample error is
+4. What motivated the choices we made
+
+The methodology for the assignment will follow the components of a predictor provided  by Professor Leek:
+
+1. Question
+2. Input Data
+3. Features
+4. Algorithm
+5. Parameters
+6. Evaluation
+
+# Question
+The question at hand is if sensor data can be used to correctly classify or predict how well an excercise is performed. 
+
+An excerpt from the study explains the classes that need to be predicted:
+*Participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes*
+
+# Input Data
+In this step we'll load needed libraries and load the training data. Note we assume empty or white space cells to be NA. We'll load the test data when needed later.
+
+```{r warning=FALSE}
+library(caret)
+library(rpart)
+library(AppliedPredictiveModeling)
+library(randomForest)
+
+training <- read.csv('~/Desktop/pml-training.csv', na.strings=c(""," ","NA"))
+
+```
+
+# Features
+Now that the data is loaded we'll remove unneeded columns and transform the training data into a set of predictive features. 
+
+### Transform 1
+Upon visual inspection of the data the first seven rows are metadata and are not sensor value related data. Thus they can be removed for our purpose of prediction
+
+```{r cache=TRUE}
+training <- training[,8:ncol(training)]
+```
+
+### Transform 2
+Remove columns with large amounts of missing or NA values.
+
+```{r cache=TRUE}
+# count the number of non-NA values in each column
+nonNAcounts <- as.vector(apply(training, 2, function(x) length(which(!is.na(x)))))
+
+# create an index of columns which have a count greater than half the number of row
+# ie keep columns that have less than 50% NA values
+good_cols <- which(nonNAcounts > nrow(training)/2)
+
+# Subset to those columns
+training <- training[,good_cols]
+```
+
+### Transform 3
+Lastly we'll check for any remaining variables that may have near zero variance to validate if any more columns can be removed
+
+```{r, cache=TRUE}
+
+nearZeroVar(training, saveMetrics = TRUE)
+
+```
+
+Given none of the nzv values are TRUE we can assume that all the remainging features explain some variability in the data.
+
+### Transform Test Data
+To ensure we predict on the same set of data we need to perform the same transformations to the testing data. Here we will load the testing data and perform all 3 of the transformations described above.
+```{r cache=TRUE}
+# Load the data
+testing <- read.csv('~/Desktop/pml-testing.csv', na.strings=c(""," ","NA"))
+
+# Remove the first 7 columns
+testing <- testing[,8:ncol(testing)]
+
+# Subset to good columns
+testing <- testing[,good_cols]
+```
+
+
+# Algorithm
+First we'll further divide the training data into smaller subsets in order to do some cross validation and assist in model fitting. Additionally, this step was needed to limit the size of training data and speed up model building. During exploratory analysis, it was discovered that using the entire training set is computationally intensive. That exploration is omitted from this report for brevity.
+
+```{r}
+#
+inval <- createDataPartition(training$classe, p=0.25, list=FALSE, times = 3)
+
+val1 <- training[inval[,1],]
+val2 <- training[inval[,2],]
+test_sample <- training[inval[,3],]
+
+```
+
+In this next section we will apply an rpart and random forest classifier to the training data and assess it's accuracy on the training data. We'll use the caret package as described in the course and keep the majority of defaults in the train() function.
+
+For both rpart and random forest models, we will create one version without cross validation and another version that uses 10 fold cross-validation repeated 2 times. This will use a different fold each time to evaluate the trained model. To do this, we will use the trainControl() function provided in the caret package. The assumption is that by using cross validation we will improve overall accuracy by mitigating over-fitting.
+
+```{r cache=TRUE}
+## rpart model without cross validation
+no_cv_rpart <- train(classe ~. , preProcess = c('scale','center'), data = val2, method ='rpart')
+
+## random forest model without cross validation
+no_cv_rf <- train(classe ~., preProcess = c('scale','center'), data = val1, method = 'rf')
+
+## Instance of trainControl to be passed to train() 
+fitControl <- trainControl(method = "repeatedcv", number = 10, repeats = 2)
+
+## rpart model with cross validation
+rpart <- train(classe ~., preProcess = c('scale','center'), trControl = fitControl, data = val1, method ='rpart')
+
+## random forest model with cross validation
+rf <- train(classe ~. , preProcess = c('scale','center'), trControl = fitControl, data = val1, method ='rf')
+
+```
+
+Now we can check the accuracy of each model against it's own training data.
+```{r cache=TRUE}
+print(no_cv_rpart, digits = 3)
+print(no_cv_rf, digits =3)
+print(rpart, digits = 3)
+print(rf, digits = 3)
+
+```
+
+It is interesting to note that the rpart model suffers when more cross validation is introduced. Counter to that the random forest model had a slight improvement when cross validation was used. 
+
+For the remainder of this report we will use the rf, random forest, model generated with cross validation. It has the best accuracry so far and should be resiliant to over-fitting due to the additional cross validation performed.
+
+
+# Parameters
+In this step we will use the best trained model we have and used those model parameters to predict the classe of each observation in the test_sample data set. The test set used was derived from the training data and the models have never seen these examples so they should provide a proxy for the out of sample error rate.
+
+```{r cache=TRUE}
+
+test_pred <- predict(rf, newdata=test_sample)
+
+```
+
+# Evaluation
+Finally we check the accuracy of predictions on the test_sample data we created by splittng the training data in order to estimate the out of sample error rate.
+
+```{r cache=TRUE}
+
+print(confusionMatrix(test_pred, test_sample$classe), digits = 4)
+
+```
+
+From the confusion matrix we can see that the accuracy is approximately 99% which gives an out of sample error rate of 0.011 or approximately 1% out of sample error rate.
